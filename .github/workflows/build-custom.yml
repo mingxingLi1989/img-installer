@@ -13,7 +13,6 @@ jobs:
     name: "Build and Release"
     runs-on: "ubuntu-22.04"
     
-    # 设置环境变量
     env:
       DEBIAN_FRONTEND: noninteractive
 
@@ -25,7 +24,8 @@ jobs:
         run: |
           sudo apt-get update
           sudo apt-get install -y \
-            debootstrap \
+            docker.io \
+            squashfs-tools \
             xorriso \
             isolinux \
             syslinux-efi \
@@ -34,7 +34,6 @@ jobs:
             mtools \
             dosfstools \
             parted \
-            squashfs-tools \
             wget \
             curl \
             git \
@@ -50,49 +49,33 @@ jobs:
       - name: "Create output directory"
         run: mkdir -p output
 
-      - name: "Validate Download URL"
-        id: validate_url
+      - name: "Update Dockerfile"
         run: |
-          DEFAULT_URL="https://default.example.com/file.img.gz"
-          USER_INPUT_URL="${{ github.event.inputs.download_url }}"
-          
-          if [[ "$USER_INPUT_URL" == "$DEFAULT_URL" ]]; then
-            echo "❌ 错误：请修改默认下载地址！当前地址为无效占位符。"
-            exit 1
-          fi
-          
-          if [[ ! "$USER_INPUT_URL" =~ ^https?://.+\.[gG][zZ]$|^https?://.+\.[xX][zZ]$|^https?://.+\.[zZ][iI][pP]$ ]]; then
-            echo "❌ 错误：地址需以 http(s) 开头且扩展名为 .gz/.xz/.zip"
-            echo "当前输入：$USER_INPUT_URL"
-            exit 1
-          fi
+          sed -i 's/FROM debian:buster/FROM debian:bookworm-slim/' supportFiles/custom/Dockerfile
+          echo "RUN echo 'deb http://deb.debian.org/debian bookworm main contrib non-free' > /etc/apt/sources.list && \\" >> supportFiles/custom/Dockerfile
+          echo "    echo 'deb http://deb.debian.org/debian bookworm-updates main contrib non-free' >> /etc/apt/sources.list && \\" >> supportFiles/custom/Dockerfile
+          echo "    echo 'deb http://security.debian.org/debian-security bookworm-security main' >> /etc/apt/sources.list" >> supportFiles/custom/Dockerfile
+
+      - name: "Build Docker image"
+        run: |
+          cd supportFiles/custom
+          docker build -t openwrt-builder .
 
       - name: "Build Image"
         run: |
-          set -e  # 遇到错误立即退出
           download_url="${{ github.event.inputs.download_url }}"
-          echo "使用下载地址: $download_url"
           ./custom.sh "$download_url"
-          
-          # 检查是否生成了ISO文件
-          if [ ! -f "output/custom-installer-x86_64.iso" ]; then
-            echo "❌ 错误：ISO文件未生成"
-            echo "当前目录内容:"
-            ls -la
-            echo "output目录内容:"
-            ls -la output/ || true
-            exit 1
-          fi
-          echo "✅ ISO文件已生成"
 
       - name: "List build artifacts"
         if: always()
         run: |
           echo "构建产物:"
-          find . -type f \( -name "*.iso" -o -name "*.log" \) -ls || true
+          find . -type f \( -name "*.iso" -o -name "*.img" \) -ls || true
+          echo "output目录内容:"
+          ls -la output/ || true
 
       - name: "Publish to Release"
-        if: success()
+        if: success() && startsWith(github.ref, 'refs/tags/')
         uses: softprops/action-gh-release@v2.2.1
         with:
           tag_name: "Custom-Installer-x86_64-ISO"
