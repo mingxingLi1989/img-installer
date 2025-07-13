@@ -20,24 +20,10 @@ jobs:
       - name: "Checking out git repository"
         uses: actions/checkout@v2
 
-      - name: "Install build dependencies"
+      - name: "Install Docker"
         run: |
           sudo apt-get update
-          sudo apt-get install -y \
-            docker.io \
-            squashfs-tools \
-            xorriso \
-            isolinux \
-            syslinux-efi \
-            grub-efi-amd64 \
-            grub-pc-bin \
-            mtools \
-            dosfstools \
-            parted \
-            wget \
-            curl \
-            git \
-            p7zip-full
+          sudo apt-get install -y docker.io
 
       - name: "Set executable permissions"
         run: |
@@ -49,13 +35,6 @@ jobs:
       - name: "Create output directory"
         run: mkdir -p output
 
-      - name: "Update Dockerfile"
-        run: |
-          sed -i 's/FROM debian:buster/FROM debian:bookworm-slim/' supportFiles/custom/Dockerfile
-          echo "RUN echo 'deb http://deb.debian.org/debian bookworm main contrib non-free' > /etc/apt/sources.list && \\" >> supportFiles/custom/Dockerfile
-          echo "    echo 'deb http://deb.debian.org/debian bookworm-updates main contrib non-free' >> /etc/apt/sources.list && \\" >> supportFiles/custom/Dockerfile
-          echo "    echo 'deb http://security.debian.org/debian-security bookworm-security main' >> /etc/apt/sources.list" >> supportFiles/custom/Dockerfile
-
       - name: "Build Docker image"
         run: |
           cd supportFiles/custom
@@ -64,7 +43,11 @@ jobs:
       - name: "Build Image"
         run: |
           download_url="${{ github.event.inputs.download_url }}"
-          ./custom.sh "$download_url"
+          docker run --rm \
+            -v "${{ github.workspace }}:/workspace" \
+            -w /workspace \
+            openwrt-builder \
+            ./custom.sh "$download_url"
 
       - name: "List build artifacts"
         if: always()
